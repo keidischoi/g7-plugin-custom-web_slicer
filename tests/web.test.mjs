@@ -3,6 +3,9 @@
 import { createHash } from 'node:crypto'
 import { crc32 as zcrc } from 'node:zlib'
 import { buildGcode3mf, bambuHeader, md5hex, crc32 } from '../web/src/gcode3mf.js'
+import { unzipModels } from '../web/src/handoff.js'
+import { deflateRawSync } from 'node:zlib'
+import { readFileSync } from 'node:fs'
 
 let pass = 0, fail = 0
 const ok = (c, m) => { c ? pass++ : fail++; console.log((c ? '  ok   ' : '  FAIL ') + m) }
@@ -48,5 +51,29 @@ const r2 = sl.slice(stl([...cube(-25, 10, 6), ...cube(5, 10, 6)]), { ...base, ex
 ok(!r2.error && Array.isArray(r2.stats.filament_mm_by_tool) && r2.stats.filament_mm_by_tool.length === 2 && /\nT1\b/.test(r2.gcode) && (r2.gcode.match(/M620 S\d/g) || []).length > 2, 'A1 두 색 (물체마다 압출기): T1 · AMS 바꿈 · 압출기마다 쓴 양')
 ok(!(r2.stats.time_estimate > 0), '두 색이면 엔진이 예상 시간을 비움 → 화면이 G-code 로 어림 (estimateSeconds)')
 sl.dispose()
+
+// 0.1.4 넘겨받은 ZIP (자른 조각 모두 등) — 저장 · deflate 둘 다, 모델만 (README · __MACOSX 빼고)
+{
+  const ents = [['a.stl', 'solid a\nendsolid a\n', 0], ['b/조각2.STL', 'solid b\n'.repeat(200), 8], ['readme.txt', 'x', 0], ['__MACOSX/._a.stl', 'm', 0], ['c.3mf', 'PK-fake', 8]]
+  const parts = [], cen = []; let off = 0
+  for (const [n, txt, m] of ents) {
+    const name = Buffer.from(n), raw = Buffer.from(txt), data = m ? deflateRawSync(raw) : raw
+    const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(m, 8); lh.writeUInt32LE(zcrc(raw), 14); lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(raw.length, 22); lh.writeUInt16LE(name.length, 26)
+    const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(m, 10); ch.writeUInt32LE(zcrc(raw), 16); ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(raw.length, 24); ch.writeUInt16LE(name.length, 28); ch.writeUInt32LE(off, 42)
+    parts.push(lh, name, data); cen.push(ch, name); off += 30 + name.length + data.length
+  }
+  const cd = Buffer.concat(cen), eo = Buffer.alloc(22); eo.writeUInt32LE(0x06054b50, 0); eo.writeUInt16LE(ents.length, 8); eo.writeUInt16LE(ents.length, 10); eo.writeUInt32LE(cd.length, 12); eo.writeUInt32LE(off, 16)
+  const list = await unzipModels(Buffer.concat([...parts, cd, eo]))
+  ok(list.map((x) => x.name).join('|') === 'a.stl|조각2.STL|c.3mf' && new TextDecoder().decode(list[1].data) === 'solid b\n'.repeat(200) && new TextDecoder().decode(list[0].data).startsWith('solid a'), 'ZIP 풀기: 저장 · deflate · 모델만 (' + list.length + '개)')
+  let bad = ''; try { await unzipModels(new Uint8Array(100)) } catch (e) { bad = e.message }
+  ok(bad === 'ZIP 파일이 아니에요', 'ZIP 이 아니면 알림')
+}
+// 0.1.4 받기 단추 옆 「프린터로 보내기」 (불러오기 plugin.iife.js) · 넘겨받기 (app.js)
+{
+  const ld = readFileSync(new URL('../resources/js/web_slicer.js', import.meta.url), 'utf8'), app = readFileSync(new URL('../web/src/app.js', import.meta.url), 'utf8')
+  ok(ld === readFileSync(new URL('../dist/js/plugin.iife.js', import.meta.url), 'utf8') && ld.includes("[data-wsl-send]:not([data-wsl-sent])") && ld.includes("'/slicer?handoff=' + key") && ld.includes("a.setAttribute('data-cls-taken', '1')")
+    && ld.includes('var SEND_ADMIN_ONLY = true') && app.includes('const SEND_ADMIN_ONLY = true') && app.includes("get('handoff')") && app.includes('takeHandoff(key)') && /accept="\.stl,\.3mf,\.obj,\.zip"/.test(app),
+  '받기 단추 옆 단추 · 새 탭 /slicer?handoff= · 내려받기 대신 넘김 · 관리자 시험 (두 곳 같이) · ZIP 고르기')
+}
 console.log('\n' + (fail ? 'FAIL ' + fail + ' / ' : 'OK ') + (pass + fail))
 process.exit(fail ? 1 : 0)
