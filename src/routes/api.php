@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Plugins\Custom\WebSlicer\Http\Controllers\AssetController;
+use Plugins\Custom\WebSlicer\Http\Controllers\MeController;
 
 /*
 | PluginRouteServiceProvider prefix: api/plugins/custom-web_slicer
@@ -11,3 +12,8 @@ use Plugins\Custom\WebSlicer\Http\Controllers\AssetController;
 
 Route::get('assets/{file}', [AssetController::class, 'show'])
     ->where('file', '[A-Za-z0-9_-][A-Za-z0-9_.-]{0,80}\.(js|css|json|wasm|txt)')->middleware('throttle:600,1')->name('assets');
+
+// 0.1.1 지금 보는 사람이 관리자인가 (보내기 단추 — 시험하는 동안 관리자에게만)
+Route::middleware(['optional.sanctum', 'throttle:120,1'])->group(function () {
+    Route::get('me', [MeController::class, 'show'])->name('me');
+});

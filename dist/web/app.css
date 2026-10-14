@@ -1,4 +1,4 @@
-/* custom-web_slicer 0.1.0 — 웹 슬라이서 화면 · AGPL-3.0-or-later */
+/* custom-web_slicer 0.1.1 — 웹 슬라이서 화면 · AGPL-3.0-or-later */
 .wsl { --a:#2563eb; --a2:#0ea5e9; --ink:#0f172a; --mute:#64748b; --line:#e2e8f0; --card:#fff; --soft:#f1f5f9; --bad:#dc2626; --ok:#059669;
   max-width:1000px; margin:0 auto; padding:16px; color:var(--ink); font:14px/1.6 system-ui,-apple-system,"Malgun Gothic",sans-serif; box-sizing:border-box; }
 .dark .wsl, html.dark .wsl { --ink:#e2e8f0; --mute:#94a3b8; --line:#334155; --card:#1e293b; --soft:#0f172a; }
@@ -29,6 +29,7 @@
 .wsl-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:9px 16px; border-radius:11px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; font-weight:700; cursor:pointer; }
 .wsl-btn.pri { background:var(--a); border-color:var(--a); color:#fff; } .wsl-btn.big { width:100%; padding:13px; font-size:16px; margin-top:10px; } .wsl-btn.sm { padding:5px 12px; font-size:13px; align-self:flex-start; }
 .wsl-btn:disabled { opacity:.5; cursor:not-allowed; }
+.wsl-adm { font-size:11px; font-weight:700; padding:1px 7px; border-radius:99px; background:rgba(255,255,255,.25); }
 .wsl-prog { height:8px; border-radius:99px; background:var(--soft); overflow:hidden; margin-top:10px; } .wsl-prog i { display:block; height:100%; width:0; background:linear-gradient(90deg,var(--a),var(--a2)); transition:width .2s; }
 .wsl-tiles { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; } .wsl-tiles > div { background:var(--soft); border-radius:12px; padding:10px; text-align:center; }
 .wsl-tiles small { display:block; color:var(--mute); font-size:12px; } .wsl-tiles b { font-size:18px; }

@@ -5,7 +5,7 @@
         "ko": "웹 슬라이서",
         "en": "Web Slicer"
     },
-    "version": "0.1.0",
+    "version": "0.1.1",
     "license": "AGPL-3.0-or-later",
     "description": {
         "ko": "회원 브라우저에서 STL · 3MF 를 슬라이스해 내 프린터로 바로 보냅니다 (서버로 모델을 올리지 않음). 엔진: three-slicer (OrcaSlicer 를 브라우저로 옮긴 것, AGPL). 보내기는 프린터 라운지(custom-my_printer)의 「출력 파일 보내기」를 씀.",
