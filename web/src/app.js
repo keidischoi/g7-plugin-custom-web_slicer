@@ -1,4 +1,4 @@
-/*! custom-web_slicer 0.1.1 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
+/*! custom-web_slicer 0.1.2 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
  *  엔진: three-slicer (OrcaSlicer 를 WebAssembly 로 옮긴 것, AGPL) — 이 화면을 열 때만 받음
  *  모델 읽기: model-read.cjs (출력 검사기 custom-print_check 의 계산 핵심, MIT)
  *  흐름: 파일 → 프린터 · 품질 · 필라멘트 → 슬라이스(Web Worker) → .gcode.3mf / .gcode 내려받기 · 프린터 라운지로 보내기 */
@@ -7,7 +7,7 @@ import { bambuHeader, buildGcode3mf } from './gcode3mf.js'
 import { pngBytes, renderThumb } from './thumb.js'
 import { createSlicerClient } from 'three-slicer/client'
 
-const V = '0.1.1', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
+const V = '0.1.2', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
 const PC = (PCMod && PCMod.read) ? PCMod : self.PCCore
 const MAX_TOOLS = 8, BIG_TRIS = 400000
 const SEND_ADMIN_ONLY = true   // 0.1.1 「📤 내 프린터로 보내기」는 시험하는 동안 관리자에게만 (실제 프린터에서 확인되면 false 로)
@@ -141,7 +141,7 @@ function matchPreset(p) {
 function planOf(t) {
   const n = t.length / 9, col = t.colors, pal = t.palette, parts = t.parts
   const hexOf = (c) => (c && pal && pal[c - 1] ? pal[c - 1].hex : '#c9ced6')
-  if (!col || !pal) return { k: 1, tool: null, hexes: ['#c9ced6'], painted: false, many: false }
+  if (!col || !pal) return { k: 1, tool: null, hexes: ['#c9ced6'], painted: false, many: false, colored: false }
   const first = new Map(), ids = [], area = new Map()
   let painted = false
   for (let i = 0; i < n; i++) {
@@ -153,11 +153,11 @@ function planOf(t) {
   const many = ids.length > MAX_TOOLS
   if (painted || many || ids.length < 2) {
     const top = ids.slice().sort((a, b) => area.get(b) - area.get(a))[0]
-    return { k: 1, tool: null, hexes: [hexOf(top)], painted, many }
+    return { k: 1, tool: null, hexes: [hexOf(top)], painted, many, colored: true }
   }
   const idx = new Map(ids.map((c, i) => [c, i])), tool = new Uint8Array(n)
   for (let i = 0; i < n; i++) tool[i] = idx.get(col[i] || 0)
-  return { k: ids.length, tool, hexes: ids.map(hexOf), painted: false, many: false }
+  return { k: ids.length, tool, hexes: ids.map(hexOf), painted: false, many: false, colored: true }
 }
 /** 바이너리 STL — 가운데(x·y)를 원점에, 바닥을 z 0 에 (엔진이 판 가운데에 놓음) · 압출기마다 삼각형을 모음 */
 function toStl(t, plan) {
@@ -416,7 +416,7 @@ function draw() {
     // 3. 설정
     '<section class="wsl-card"><h2><b>3</b> 설정</h2>' +
       '<label>품질 (층 높이)<div class="wsl-chips">' + (procs.length ? procs.map((n) => '<button type="button" class="wsl-chip sm' + (n === S.process ? ' on' : '') + '" data-proc="' + esc(n) + '">' + esc(n.replace(/\s*@.*$/, '')) + '</button>').join('') : '<span class="wsl-hint">불러오는 중…</span>') + '</div></label>' +
-      '<div class="wsl-fils"><b>필라멘트</b>' + (ST && FILS ? (P ? P.hexes : ['#c9ced6']).map((h, i) => '<div class="wsl-fil"><i style="background:' + esc(h) + '"></i>' + ((P && P.k > 1) ? '<span>' + (i + 1) + '번</span>' : '') + filSelect(i) + '</div>').join('') : '<span class="wsl-hint">불러오는 중…</span>') + '</div>' +
+      '<div class="wsl-fils"><b>필라멘트</b>' + (ST && FILS ? (P ? P.hexes : ['#c9ced6']).map((h, i) => '<div class="wsl-fil">' + (P && P.colored ? '<span class="wsl-mc" title="모델 파일에 적힌 색 — 이 색 자리에 쓸 필라멘트를 오른쪽에서 고르세요"><i style="background:' + esc(h) + '"></i>' + (P.k > 1 ? (i + 1) + '번 색' : '모델 색') + '</span>' : '') + filSelect(i) + '</div>').join('') : '<span class="wsl-hint">불러오는 중…</span>') + '</div>' +
       '<div class="wsl-row"><label>채우기<select data-infill>' + [5, 10, 15, 20, 25, 30, 40, 50, 100].map((v) => '<option value="' + v + '"' + (v === S.infill ? ' selected' : '') + '>' + v + '%</option>').join('') + '</select></label>' +
         '<label class="wsl-tg"><input type="checkbox" data-support' + (S.support ? ' checked' : '') + '> 서포트 (나무 모양 · 자동)</label><label class="wsl-tg"><input type="checkbox" data-brim' + (S.brim ? ' checked' : '') + '> 브림 (바닥 테두리)</label></div>' +
       '<button type="button" class="wsl-btn pri big" data-slice' + (!S.tris || S.busy ? ' disabled' : '') + '>' + (S.busy ? '⏳ 슬라이스 중…' : '🔪 슬라이스') + '</button>' +
