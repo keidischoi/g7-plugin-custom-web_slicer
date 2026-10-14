@@ -1,4 +1,4 @@
-/*! custom-web_slicer 0.1.2 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
+/*! custom-web_slicer 0.1.3 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
  *  엔진: three-slicer (OrcaSlicer 를 WebAssembly 로 옮긴 것, AGPL) — 이 화면을 열 때만 받음
  *  모델 읽기: model-read.cjs (출력 검사기 custom-print_check 의 계산 핵심, MIT)
  *  흐름: 파일 → 프린터 · 품질 · 필라멘트 → 슬라이스(Web Worker) → .gcode.3mf / .gcode 내려받기 · 프린터 라운지로 보내기 */
@@ -7,7 +7,7 @@ import { bambuHeader, buildGcode3mf } from './gcode3mf.js'
 import { pngBytes, renderThumb } from './thumb.js'
 import { createSlicerClient } from 'three-slicer/client'
 
-const V = '0.1.2', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
+const V = '0.1.3', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
 const PC = (PCMod && PCMod.read) ? PCMod : self.PCCore
 const MAX_TOOLS = 8, BIG_TRIS = 400000
 const SEND_ADMIN_ONLY = true   // 0.1.1 「📤 내 프린터로 보내기」는 시험하는 동안 관리자에게만 (실제 프린터에서 확인되면 false 로)
@@ -77,7 +77,7 @@ const S = {
   lounge: [], loggedIn: false, pid: 0, admin: false,              // 프린터 라운지 내 프린터 · 고른 것 (0 = 없음)
   vendor: 'BBL', printer: 'Bambu Lab A1 0.4 nozzle', process: '', fil: [],
   infill: 15, support: false, brim: false,
-  busy: false, prog: 0, result: null, msg: '', err: '',
+  busy: false, prog: 0, result: null, msg: '', err: '', sent: '',
 }
 let ST = null, PROCS = null, FILS = null, client = null, root = null
 
@@ -183,7 +183,7 @@ function toStl(t, plan) {
 }
 
 async function openFile(f) {
-  S.err = ''; S.msg = ''; S.result = null; S.file = f; S.tris = null; S.plan = null; S.thumb = null
+  S.err = ''; S.msg = ''; S.sent = ''; S.result = null; S.file = f; S.tris = null; S.plan = null; S.thumb = null
   draw(); setStatus('📖 「' + f.name + '」 읽는 중…')
   try {
     const t = await PC.read(f.name, await f.arrayBuffer())
@@ -367,6 +367,10 @@ function sendDialog() {
       dm.innerHTML = ok ? '✅ ' + esc(d.message || '보냈어요.') + ' <a href="/my-printer">프린터 라운지에서 상태 보기 ›</a>'
         : '⚠️ ' + esc(x.status === 413 ? '파일이 너무 커요 — 서버의 올리기 한도를 넘었어요.' : d.message || (x.status === 401 ? '로그인이 필요해요.' : '보내지 못했어요 (' + x.status + ').'))
       go.textContent = ok ? '✅ 보냄' : '📤 다시 보내기'; go.disabled = ok
+      if (ok) {   // 0.1.3 보냈으면 잠깐 보여 주고 창을 닫음 — 화면 위에 「보냈어요」가 남음
+        S.sent = '「' + p.name + '」 로 보냈어요 — 연결 프로그램이 30초쯤 안에 받아 출력을 시작해요.'
+        setTimeout(() => { close(); draw(); const n = root && root.querySelector('.wsl-sent'); if (n) n.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, 1200)
+      }
     }
     x.onerror = () => { dm.hidden = false; dm.className = 'wsl-dmsg bad'; dm.textContent = '⚠️ 연결이 끊겼어요.'; go.disabled = false; go.textContent = '📤 다시 보내기' }
     x.send(fd)
@@ -397,6 +401,7 @@ function draw() {
     '<header class="wsl-hero"><div><h1>🔪 웹 슬라이서</h1><p>STL · 3MF 를 이 브라우저에서 슬라이스해 내 프린터로 바로 보내요. 모델은 서버로 올라가지 않아요.</p></div></header>' +
     '<p class="wsl-status" data-status hidden></p>' +
     (S.err ? '<p class="wsl-err">⚠️ ' + esc(S.err) + '</p>' : '') + (S.msg ? '<p class="wsl-note">' + esc(S.msg) + '</p>' : '') +
+    (S.sent ? '<p class="wsl-sent">✅ ' + esc(S.sent) + ' <a href="/my-printer">프린터 라운지에서 상태 보기 ›</a><button type="button" data-sent-x aria-label="닫기">✕</button></p>' : '') +
     // 1. 파일
     '<section class="wsl-card"><h2><b>1</b> 모델 파일</h2>' +
       (I ? '<div class="wsl-file"><div class="wsl-thumb" data-thumb></div><div><b title="' + esc(S.file.name) + '">' + esc(S.file.name) + '</b><small>' + n1(I.size[0]) + ' × ' + n1(I.size[1]) + ' × ' + n1(I.size[2]) + ' mm · 삼각형 ' + I.tris.toLocaleString() +
@@ -452,6 +457,7 @@ function bind() {
     else if (b.hasAttribute('data-slice')) slice()
     else if (b.hasAttribute('data-dl')) download(b.getAttribute('data-dl'))
     else if (b.hasAttribute('data-send')) sendDialog()
+    else if (b.hasAttribute('data-sent-x')) { S.sent = ''; draw() }
   })
   root.addEventListener('dragover', (e) => { if (e.target.closest('[data-drop]')) { e.preventDefault(); e.target.closest('[data-drop]').classList.add('over') } })
   root.addEventListener('dragleave', (e) => { const d = e.target.closest('[data-drop]'); if (d) d.classList.remove('over') })

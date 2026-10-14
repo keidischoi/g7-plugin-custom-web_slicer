@@ -1,9 +1,9 @@
-/*! custom-web_slicer 0.1.2 — 웹 슬라이서 화면 불러오기 (이 플러그인 화면 data-wsl-app 이 있을 때만 앱 · 엔진을 받음) · AGPL-3.0-or-later */
+/*! custom-web_slicer 0.1.3 — 웹 슬라이서 화면 불러오기 (이 플러그인 화면 data-wsl-app 이 있을 때만 앱 · 엔진을 받음) · AGPL-3.0-or-later */
 (function () {
   'use strict';
   if (window.__wslLoader) return;
   window.__wslLoader = true;
-  var API = '/api/plugins/custom-web_slicer', V = '0.1.2', loading = false;
+  var API = '/api/plugins/custom-web_slicer', V = '0.1.3', loading = false;
   function app() {
     if (!document.querySelector('[data-wsl-app]')) return;
     if (!document.getElementById('wsl-css')) {
