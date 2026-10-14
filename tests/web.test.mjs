@@ -71,7 +71,7 @@ sl.dispose()
 // 0.1.4 받기 단추 옆 「프린터로 보내기」 (불러오기 plugin.iife.js) · 넘겨받기 (app.js)
 {
   const ld = readFileSync(new URL('../resources/js/web_slicer.js', import.meta.url), 'utf8'), app = readFileSync(new URL('../web/src/app.js', import.meta.url), 'utf8')
-  ok(ld === readFileSync(new URL('../dist/js/plugin.iife.js', import.meta.url), 'utf8') && ld.includes("[data-wsl-send]:not([data-wsl-sent])") && ld.includes("'/slicer?handoff=' + key") && ld.includes("a.setAttribute('data-cls-taken', '1')")
+  ok(ld === readFileSync(new URL('../dist/js/plugin.iife.js', import.meta.url), 'utf8') && ld.includes("[data-wsl-send]:not([data-wsl-sent])") && ld.includes('data-wsl-embed') && ld.includes('window.__wslPass') && !ld.includes('window.open(') && app.includes('async function embedStart(key)') && app.includes('function upload(p, R, ams, onProg)') && ld.includes("a.setAttribute('data-cls-taken', '1')")
     && ld.includes('var SEND_ADMIN_ONLY = true') && app.includes('const SEND_ADMIN_ONLY = true') && app.includes("get('handoff')") && app.includes('takeHandoff(key)') && /accept="\.stl,\.3mf,\.obj,\.zip"/.test(app),
   '받기 단추 옆 단추 · 새 탭 /slicer?handoff= · 내려받기 대신 넘김 · 관리자 시험 (두 곳 같이) · ZIP 고르기')
 }

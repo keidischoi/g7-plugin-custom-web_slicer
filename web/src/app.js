@@ -1,4 +1,4 @@
-/*! custom-web_slicer 0.1.4 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
+/*! custom-web_slicer 0.1.5 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
  *  엔진: three-slicer (OrcaSlicer 를 WebAssembly 로 옮긴 것, AGPL) — 이 화면을 열 때만 받음
  *  모델 읽기: model-read.cjs (출력 검사기 custom-print_check 의 계산 핵심, MIT)
  *  흐름: 파일 → 프린터 · 품질 · 필라멘트 → 슬라이스(Web Worker) → .gcode.3mf / .gcode 내려받기 · 프린터 라운지로 보내기 */
@@ -8,7 +8,7 @@ import { pngBytes, renderThumb } from './thumb.js'
 import { createSlicerClient } from 'three-slicer/client'
 import { takeHandoff, unzipModels } from './handoff.js'
 
-const V = '0.1.4', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
+const V = '0.1.5', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
 const PC = (PCMod && PCMod.read) ? PCMod : self.PCCore
 const MAX_TOOLS = 8, BIG_TRIS = 400000
 const SEND_ADMIN_ONLY = true   // 0.1.1 「📤 내 프린터로 보내기」는 시험하는 동안 관리자에게만 (실제 프린터에서 확인되면 false 로)
@@ -80,6 +80,8 @@ const S = {
   infill: 15, support: false, brim: false,
   busy: false, prog: 0, result: null, msg: '', err: '', sent: '',
   zip: null,                                                      // 0.1.4 ZIP 안의 모델들 {name, list:[{name, data}]} — 하나 고르기
+  // 0.1.5 팝업(다른 화면의 「🖨️ 프린터로 보내기」) — step: wait · load · none · printers · slicer · file · set · work · sent · fail
+  embed: '', step: '', ams: [], bed: false, phase: '', up: 0, done: null,
 }
 let ST = null, PROCS = null, FILS = null, client = null, root = null
 
@@ -408,6 +410,7 @@ function filSelect(i) {
 }
 function draw() {
   if (!root) return
+  if (S.embed) return drawEmbed()
   const I = S.info, P = S.plan, R = S.result, lp = loungeP()
   const procs = ST ? processList() : []
   root.innerHTML = '<div class="wsl">' +
@@ -466,6 +469,8 @@ function bind() {
     else if (t.matches('[data-infill]')) { S.infill = +t.value; S.result = null; draw() }
     else if (t.matches('[data-support]')) { S.support = t.checked; S.result = null; draw() }
     else if (t.matches('[data-brim]')) { S.brim = t.checked; S.result = null; draw() }
+    else if (t.matches('[data-eams]')) { S.ams[+t.getAttribute('data-eams')] = t.value; draw() }
+    else if (t.matches('[data-ebed]')) { S.bed = t.checked; draw() }
   })
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b || !root.contains(b)) return
@@ -475,7 +480,13 @@ function bind() {
     else if (b.hasAttribute('data-dl')) download(b.getAttribute('data-dl'))
     else if (b.hasAttribute('data-send')) sendDialog()
     else if (b.hasAttribute('data-sent-x')) { S.sent = ''; draw() }
-    else if (b.hasAttribute('data-zip')) { const x = S.zip && S.zip.list[+b.getAttribute('data-zip')]; if (x) openFile(new File([x.data], x.name), true) }
+    else if (b.hasAttribute('data-zip')) { const x = S.zip && S.zip.list[+b.getAttribute('data-zip')]; if (x) openFile(new File([x.data], x.name), true).then(() => { if (S.embed && S.tris) { S.step = 'set'; embedDefaults(); draw() } }) }
+    else if (b.hasAttribute('data-ep')) embedPick(b.getAttribute('data-ep'))
+    else if (b.hasAttribute('data-es')) embedSlicer(b.getAttribute('data-es'))
+    else if (b.hasAttribute('data-eback')) { S.err = ''; S.step = 'printers'; draw() }
+    else if (b.hasAttribute('data-ego')) embedGo()
+    else if (b.hasAttribute('data-elounge')) embedClose('/my-printer')
+    else if (b.hasAttribute('data-ex')) embedClose('')
     else if (b.hasAttribute('data-zipback')) { S.file = null; S.tris = null; S.info = null; S.plan = null; S.result = null; draw() }
   })
   root.addEventListener('dragover', (e) => { if (e.target.closest('[data-drop]')) { e.preventDefault(); e.target.closest('[data-drop]').classList.add('over') } })
@@ -487,12 +498,158 @@ function mount() {
   const el = document.querySelector('[data-wsl-app]')
   if (!el || el.__wsl) return
   el.__wsl = true; root = el
+  if (el.getAttribute('data-wsl-embed')) { bind(); embedStart(el.getAttribute('data-wsl-embed')); return }
+  if (S.embed) { S.embed = ''; S.step = ''; S.file = null; S.tris = null; S.info = null; S.plan = null; S.result = null; S.zip = null; S.err = '' }
   bind(); draw()
   handoff()
   loadMe().then(draw)
   engineData().then(() => { if (!S.process) S.process = defaultProcess(); if (!S.fil.length) S.fil = [defaultFilament()]; draw(); return loadLounge() })
     .catch((e) => { S.err = '슬라이서 설정을 불러오지 못했어요: ' + ((e && e.message) || e); draw() })
 }
+/* ───────── 0.1.5 팝업: 다른 화면의 「🖨️ 프린터로 보내기」 — 웹 슬라이서 화면 없이 그 자리에서 ───────── */
+const SLICERS = () => [{ key: 'web', name: '🔪 웹 슬라이서', desc: '이 브라우저에서 슬라이스 (OrcaSlicer 엔진)' }].concat(Array.isArray(window.G7Slicers) ? window.G7Slicers : [])
+async function embedStart(key) {
+  Object.assign(S, { embed: key, step: 'wait', err: '', msg: '', sent: '', file: null, tris: null, info: null, plan: null, thumb: null, result: null, zip: null, pid: 0, ams: [], bed: false, phase: '', up: 0, done: null })
+  draw()
+  let f = null
+  for (let i = 0; i < 240 && !f; i++) { f = window.__wslPass && window.__wslPass[key]; if (!f) await new Promise((r) => setTimeout(r, 250)) }
+  if (window.__wslPass) delete window.__wslPass[key]
+  if (!f || f.error) { S.err = f ? f.error : '파일이 오지 않았어요 — 원래 화면에서 다시 눌러 주세요.'; S.step = 'fail'; draw(); return }
+  S.step = 'load'; draw()
+  try { await engineData() } catch (e) { S.err = '슬라이서 설정을 불러오지 못했어요: ' + ((e && e.message) || e); S.step = 'fail'; draw(); return }
+  await Promise.all([loadMe(), loadLounge()])
+  S.pid = 0
+  await openFile(new File([f.blob], f.name || 'model.stl', { type: f.blob.type || '' }))
+  if (!S.tris && !S.zip) { S.step = 'fail'; draw(); return }
+  S.step = S.lounge.some((p) => p.can_send) ? 'printers' : 'none'
+  draw()
+}
+function embedPick(id) {
+  const p = S.lounge.find((x) => +x.id === +id)
+  if (!p || !p.can_send) return
+  S.err = ''; S.msg = ''
+  if (!matchPreset(p)) { S.err = '「' + (p.name || '') + '」 와 맞는 슬라이서 프린터 설정을 못 찾았어요 — 웹 슬라이서 화면에서 직접 골라 주세요.'; draw(); return }
+  pickLounge(p.id, true)
+  const list = SLICERS()
+  if (list.length > 1) { S.step = 'slicer'; draw(); return }
+  embedSlicer('web')
+}
+function embedSlicer(k) {
+  const other = SLICERS().find((x) => x.key === k && x.key !== 'web')
+  if (other && typeof other.open === 'function') { try { other.open({ file: S.file, printer: loungeP() }) } catch (e) {} embedClose(''); return }
+  S.step = !S.tris && S.zip ? 'file' : 'set'
+  if (S.step === 'set') embedDefaults()
+  draw()
+}
+/** AMS 칸 — 색이 가장 가까운 칸으로 미리 */
+function embedDefaults() {
+  const p = loungeP(), ams = ((p && p.temps && p.temps.ams) || []).filter((a) => a.slot), hexes = S.plan ? S.plan.hexes : ['#c9ced6']
+  S.ams = hexes.map((h, i) => {
+    if (S.ams[i]) return S.ams[i]
+    let best = ams[0], bd = Infinity
+    ams.forEach((a) => { const d = hexDist(h, a.color); if (d < bd) { bd = d; best = a } })
+    return best ? String(best.slot) : 'ext'
+  })
+  S.ams.length = hexes.length
+}
+async function embedGo() {
+  const p = loungeP()
+  if (!p || !S.tris || !S.bed || S.busy || S.step === 'work') return
+  S.err = ''; S.step = 'work'; S.phase = 'slice'; draw()
+  await slice()
+  if (!S.result) { S.step = 'set'; draw(); return }
+  S.phase = 'upload'; S.up = 0; S.busy = true; draw()
+  const R = S.result, bb = (p.send_kind || 'bambu') === 'bambu'
+  const amsOn = bb && ((p.temps && p.temps.ams) || []).some((a) => a.slot)
+  const r = await upload(p, R, amsOn ? S.ams : null, (v) => { S.up = v; setStatus('📤 프린터 라운지에 올리는 중… ' + Math.round(v * 100) + '%') })
+  S.busy = false
+  if (!r.ok) { S.err = r.message; S.step = 'set'; draw(); return }
+  S.done = { name: p.name, message: r.message, seconds: R.seconds, weight: R.weight, guessed: R.guessed }
+  S.step = 'sent'; setStatus(''); draw()
+}
+/** .gcode.3mf(Bambu) · .gcode 를 프린터 라운지로 — ams: 색마다 'ext' 또는 AMS 칸 번호 (없으면 외부 스풀) */
+function upload(p, R, ams, onProg) {
+  return new Promise((done) => {
+    const bb = (p.send_kind || 'bambu') === 'bambu', fd = new FormData()
+    const blob = bb && R.gcode3mf ? R.gcode3mf : new Blob([R.gcode], { type: 'text/plain' })
+    fd.append('file', blob, R.base.replace(/[^\w.-]+/g, '_').slice(0, 60) + (bb && R.gcode3mf ? '.gcode.3mf' : '.gcode'))
+    fd.append('bed_clear', '1'); fd.append('plate', '1')
+    if (bb && ams && ams.length && !ams.includes('ext')) { fd.append('use_ams', '1'); fd.append('ams_map', JSON.stringify(ams.map((v) => +v - 1))) } else fd.append('use_ams', '0')
+    const x = new XMLHttpRequest()
+    x.open('POST', LOUNGE + '/printers/' + p.id + '/send-file'); x.withCredentials = true
+    Object.entries(headers()).forEach(([k, v]) => x.setRequestHeader(k, v))
+    const m = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/); if (m) x.setRequestHeader('X-XSRF-TOKEN', decodeURIComponent(m[1]))
+    x.upload.onprogress = (e) => { if (e.lengthComputable && onProg) onProg(e.loaded / e.total) }
+    x.onload = () => {
+      let d = {}; try { d = JSON.parse(x.responseText || '{}') } catch (e) {}
+      const ok = x.status >= 200 && x.status < 300 && d.success !== false
+      done({ ok, message: ok ? (d.message || '보냈어요.') : (x.status === 413 ? '파일이 너무 커요 — 서버의 올리기 한도를 넘었어요.' : d.message || (x.status === 401 ? '로그인이 필요해요.' : '보내지 못했어요 (' + x.status + ').')) })
+    }
+    x.onerror = () => done({ ok: false, message: '연결이 끊겼어요 — 다시 해 주세요.' })
+    x.send(fd)
+  })
+}
+function embedClose(go) {
+  const pop = root && root.closest('[data-wsl-pop]')
+  S.embed = ''; S.step = ''
+  if (pop) pop.remove()
+  if (go) {
+    try { if (window.G7Core && typeof G7Core.dispatch === 'function') { G7Core.dispatch({ handler: 'navigate', params: { path: go } }); return } } catch (e) {}
+    location.href = go
+  }
+}
+function drawEmbed() {
+  const p = loungeP(), P = S.plan, I = S.info, st = S.step
+  let h = '<div class="wsl wsl-emb">'
+  if (I && S.file && st !== 'sent') {
+    h += '<div class="wsl-file sm"><div class="wsl-thumb" data-thumb></div><div><b title="' + esc(S.file.name) + '">' + esc(S.file.name) + '</b><small>' + n1(I.size[0]) + ' × ' + n1(I.size[1]) + ' × ' + n1(I.size[2]) + ' mm' +
+      (P && P.k > 1 ? ' · ' + P.k + '색' : '') + '</small>' + (P && P.k > 1 ? '<span class="wsl-sw">' + P.hexes.map((c) => '<i style="background:' + esc(c) + '"></i>').join('') + '</span>' : '') + '</div></div>'
+  }
+  if (S.err) h += '<p class="wsl-err">⚠️ ' + esc(S.err) + '</p>'
+  if (st === 'wait') h += '<p class="wsl-emb-wait">📦 파일을 준비하는 중…</p>'
+  else if (st === 'load') h += '<p class="wsl-emb-wait">🔎 보낼 수 있는 프린터를 확인하는 중…</p>'
+  else if (st === 'fail') h += '<div class="wsl-acts"><button type="button" class="wsl-btn" data-ex>닫기</button></div>'
+  else if (st === 'none') {
+    h += '<p class="wsl-emb-q">지금 보낼 수 있는 프린터가 없어요</p>' +
+      (S.lounge.length ? '<div class="wsl-eps">' + S.lounge.map((x) => '<div class="wsl-ep off"><b>🖨️ ' + esc(x.name) + '</b><small>' + esc(offWhy(x)) + '</small></div>').join('') + '</div>'
+        : '<p class="wsl-hint">' + (S.loggedIn ? '프린터 라운지에 내 프린터를 등록하고 연결 프로그램을 켜면 여기서 바로 보낼 수 있어요.' : '로그인하면 프린터 라운지의 내 프린터로 보낼 수 있어요.') + '</p>') +
+      '<div class="wsl-acts"><button type="button" class="wsl-btn" data-ex>닫기</button><button type="button" class="wsl-btn pri" data-elounge>📡 프린터 라운지로 가기</button></div>'
+  } else if (st === 'printers') {
+    h += '<p class="wsl-emb-q">어느 프린터로 보낼까요?</p><div class="wsl-eps">' + S.lounge.map((x) => x.can_send
+      ? '<button type="button" class="wsl-ep" data-ep="' + x.id + '"><b>🖨️ ' + esc(x.name) + '</b><small>' + esc(stateTxt(x)) + '</small></button>'
+      : '<div class="wsl-ep off"><b>🖨️ ' + esc(x.name) + '</b><small>' + esc(offWhy(x)) + '</small></div>').join('') + '</div>'
+  } else if (st === 'slicer') {
+    h += '<p class="wsl-emb-q">어떤 슬라이서로 할까요?</p><div class="wsl-eps">' + SLICERS().map((x) => '<button type="button" class="wsl-ep" data-es="' + esc(x.key) + '"><b>' + esc(x.name) + '</b><small>' + esc(x.desc || '') + '</small></button>').join('') + '</div>'
+  } else if (st === 'file' && S.zip) {
+    h += '<p class="wsl-emb-q">📦 「' + esc(S.zip.name) + '」 안의 모델 ' + S.zip.list.length + '개 — 어느 것을 보낼까요?</p><div class="wsl-chips">' +
+      S.zip.list.map((x, i) => '<button type="button" class="wsl-chip" data-zip="' + i + '">' + esc(x.name) + ' <small>' + n1(x.data.length / 1048576) + 'MB</small></button>').join('') + '</div>'
+  } else if (st === 'set' && p) {
+    const procs = processList(), ams = ((p.temps && p.temps.ams) || []).filter((a) => a.slot), bb = (p.send_kind || 'bambu') === 'bambu'
+    h += '<p class="wsl-emb-q">🖨️ 「' + esc(p.name) + '」 · <span class="wsl-hint">' + esc(S.printer) + '</span></p>' +
+      '<label>품질 (층 높이)<div class="wsl-chips">' + procs.map((n) => '<button type="button" class="wsl-chip sm' + (n === S.process ? ' on' : '') + '" data-proc="' + esc(n) + '">' + esc(n.replace(/\s*@.*$/, '')) + '</button>').join('') + '</div></label>' +
+      '<div class="wsl-fils"><b>필라멘트' + (bb && ams.length ? ' · AMS 칸' : '') + '</b>' + (P ? P.hexes : ['#c9ced6']).map((c, i) => '<div class="wsl-fil">' +
+        (P && P.colored ? '<span class="wsl-mc"><i style="background:' + esc(c) + '"></i>' + (P.k > 1 ? (i + 1) + '번 색' : '모델 색') + '</span>' : '') + filSelect(i) +
+        (bb && ams.length ? '<select data-eams="' + i + '">' + ams.map((a) => '<option value="' + a.slot + '"' + (String(a.slot) === S.ams[i] ? ' selected' : '') + '>AMS ' + a.slot + ' — ' + esc(a.type || '') + '</option>').join('') +
+          ((P ? P.k : 1) === 1 ? '<option value="ext"' + (S.ams[i] === 'ext' ? ' selected' : '') + '>외부 스풀</option>' : '') + '</select><b class="wsl-amsdot" style="background:' + esc(((ams.find((a) => String(a.slot) === S.ams[i]) || {}).color) || '#ccc') + '"></b>' : '') + '</div>').join('') + '</div>' +
+      '<div class="wsl-row"><label>채우기<select data-infill>' + [5, 10, 15, 20, 25, 30, 40, 50, 100].map((v) => '<option value="' + v + '"' + (v === S.infill ? ' selected' : '') + '>' + v + '%</option>').join('') + '</select></label>' +
+        '<label class="wsl-tg"><input type="checkbox" data-support' + (S.support ? ' checked' : '') + '> 서포트</label><label class="wsl-tg"><input type="checkbox" data-brim' + (S.brim ? ' checked' : '') + '> 브림</label></div>' +
+      '<label class="wsl-bed"><input type="checkbox" data-ebed' + (S.bed ? ' checked' : '') + '> <span>🧹 <b>베드를 비웠어요</b> — 바닥판에 아무것도 없어요 (멀리서 출력 시작은 위험해요)</span></label>' +
+      (SEND_ADMIN_ONLY ? '<p class="wsl-hint">🔒 시험하는 동안 관리자에게만 보여요.</p>' : '') +
+      '<div class="wsl-acts"><button type="button" class="wsl-btn" data-eback>← 프린터 다시 고르기</button><button type="button" class="wsl-btn pri" data-ego' + (S.bed ? '' : ' disabled') + '>🔪 슬라이스하고 보내기</button></div>'
+  } else if (st === 'work') {
+    const v = S.phase === 'upload' ? S.up : S.prog
+    h += '<p class="wsl-emb-q">' + (S.phase === 'upload' ? '📤 「' + esc(p ? p.name : '') + '」 로 보내는 중…' : '🔪 슬라이스하는 중… (처음 한 번은 엔진을 받느라 조금 걸려요)') + '</p><div class="wsl-prog"><i style="width:' + Math.round((v || 0) * 100) + '%"></i></div>'
+  } else if (st === 'sent' && S.done) {
+    const D = S.done
+    h += '<div class="wsl-emb-ok"><b>✅ 「' + esc(D.name) + '」 로 보냈어요</b><p>' + esc(D.message) + '</p><p class="wsl-hint">예상 ' + dur(D.seconds) + (D.guessed ? ' (어림)' : '') + ' · 필라멘트 ' + n1(D.weight) + ' g · 연결 프로그램이 30초쯤 안에 받아 출력을 시작해요.</p></div>' +
+      '<p class="wsl-emb-q">프린터 라운지로 이동할까요?</p><div class="wsl-acts"><button type="button" class="wsl-btn" data-ex>여기 있기</button><button type="button" class="wsl-btn pri" data-elounge>📡 프린터 라운지로 이동</button></div>'
+  }
+  root.innerHTML = h + '<p class="wsl-status" data-status hidden></p></div>'
+  const th = root.querySelector('[data-thumb]'); if (th && S.thumb) { S.thumb.className = 'wsl-cv'; th.appendChild(S.thumb) }
+}
+function stateTxt(x) { return ({ printing: '🟢 출력 중', paused: '⏸ 멈춤', idle: '쉬는 중 · 보낼 수 있어요', done: '쉬는 중 · 보낼 수 있어요', failed: '쉬는 중 · 보낼 수 있어요' })[x.state] || '보낼 수 있어요' }
+function offWhy(x) { return x.can_send ? '' : x.state === 'printing' ? '출력 중이라 지금은 못 보내요' : '연결 프로그램이 10분 넘게 소식이 없거나, 보내기를 지원하지 않는 연결이에요' }
+
 /* ───────── 0.1.4 다른 화면에서 넘겨받은 파일 (/slicer?handoff=열쇠) ───────── */
 async function handoff() {
   let key = ''

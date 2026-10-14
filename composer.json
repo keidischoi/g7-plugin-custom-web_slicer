@@ -2,7 +2,7 @@
     "name": "plugins/custom-web_slicer",
     "description": "G7 웹 슬라이서 — 회원 브라우저에서 슬라이스해 내 프린터로 보내기 (three-slicer · AGPL)",
     "type": "library",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "license": "AGPL-3.0-or-later",
     "autoload": {
         "psr-4": {

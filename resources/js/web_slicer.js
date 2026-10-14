@@ -1,9 +1,9 @@
-/*! custom-web_slicer 0.1.4 — 웹 슬라이서 화면 불러오기 (이 플러그인 화면 data-wsl-app 이 있을 때만 앱 · 엔진을 받음) · AGPL-3.0-or-later */
+/*! custom-web_slicer 0.1.5 — 웹 슬라이서 화면 불러오기 (이 플러그인 화면 data-wsl-app 이 있을 때만 앱 · 엔진을 받음) · AGPL-3.0-or-later */
 (function () {
   'use strict';
   if (window.__wslLoader) return;
   window.__wslLoader = true;
-  var API = '/api/plugins/custom-web_slicer', V = '0.1.4', loading = false;
+  var API = '/api/plugins/custom-web_slicer', V = '0.1.5', loading = false;
   function app() {
     if (!document.querySelector('[data-wsl-app]')) return;
     if (!document.getElementById('wsl-css')) {
@@ -66,7 +66,7 @@
    *  내려받지 않고 이 사이트의 IndexedDB 에 잠깐 둠 → 웹 슬라이서가 꺼내 엶 (서버로는 안 감). 웹저장소 연결의 「내 저장소에 저장」과 같은 방식
    *  data-wsl-send="무엇" (말풍선) · data-wsl-send-class="그 확장의 보통 단추 class" (강조 단추를 그대로 베끼지 않게) */
   var SEND_ADMIN_ONLY = true;   // 웹 슬라이서의 「📤 내 프린터로 보내기」가 시험 중이라 관리자에게만 (app.js 와 같이 바꿈)
-  var HDB = 'wsl-handoff', HST = 'files', MODEL = /\.(stl|3mf|obj|zip)$/i;
+  var MODEL = /\.(stl|3mf|obj|zip)$/i;
   var armed = null, blobs = {}, me = null;
   function tok() {
     var t = '';
@@ -81,16 +81,10 @@
       .then(function (j) { return (j && j.data) || {}; }, function () { return {}; });
     return me;
   }
-  function put(key, val) {
-    return new Promise(function (ok, no) {
-      var r = indexedDB.open(HDB, 1);
-      r.onupgradeneeded = function () { if (!r.result.objectStoreNames.contains(HST)) r.result.createObjectStore(HST); };
-      r.onerror = function () { no(r.error); };
-      r.onsuccess = function () { var db = r.result, tx = db.transaction(HST, 'readwrite'); tx.objectStore(HST).put(val, key); tx.oncomplete = function () { db.close(); ok(); }; tx.onerror = function () { db.close(); no(tx.error); }; };
-    });
-  }
   function disarm() { clearTimeout(armed && armed.t); armed = null; blobs = {}; }
-  function fail(o, msg) { put(o.key, { error: msg, at: Date.now() }).catch(function () {}); }
+  // 0.1.5 만든 파일은 이 화면의 팝업(웹 슬라이서 앱)에 바로 넘김 — 새 탭 · 서버 없이
+  function pass(key, v) { (window.__wslPass = window.__wslPass || {})[key] = v; }
+  function fail(o, msg) { pass(o.key, { error: msg }); }
   function take(a) {
     if (!armed || !a || !a.hasAttribute || !a.hasAttribute('download')) return false;
     var href = a.href || '', o = armed, b = blobs[href], name = a.getAttribute('download') || 'model.stl';
@@ -98,8 +92,7 @@
     if (!get) return false;
     disarm(); a.setAttribute('data-cls-taken', '1');   // 부른 쪽이 「저장했어요」 알림을 안 띄우게 (웹저장소 연결과 같은 표시)
     if (!MODEL.test(name)) { fail(o, '「' + name + '」 은(는) 슬라이스할 수 있는 모델 파일(STL · 3MF · OBJ)이 아니에요.'); return true; }
-    get.then(function (bl) { return put(o.key, { name: name, blob: bl, at: Date.now(), from: location.pathname }); })
-      .then(function () { if (!o.w) location.href = '/slicer?handoff=' + o.key; }, function (e) { fail(o, '파일을 넘기지 못했어요: ' + ((e && e.message) || e)); });
+    get.then(function (bl) { pass(o.key, { name: name, blob: bl }); }, function (e) { fail(o, '파일을 넘기지 못했어요: ' + ((e && e.message) || e)); });
     return true;
   }
   (function hook() {
@@ -112,9 +105,23 @@
       document.addEventListener('click', function (e) { try { if (!armed) return; var a = e.target && e.target.closest && e.target.closest('a[download]'); if (a && take(a)) { e.preventDefault(); e.stopPropagation(); } } catch (er) {} }, true);
     } catch (e) {}
   })();
+  /** 0.1.5 팝업 — 안의 [data-wsl-app data-wsl-embed] 를 보고 웹 슬라이서 앱(app.js)이 그 자리에서 프린터 고르기 · 설정 · 슬라이스 · 보내기 */
+  var POP_CSS = '.wsl-pop{position:fixed;inset:0;z-index:99990;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px}' +
+    '.wsl-pop-box{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;overflow-x:hidden;background:#fff;color:#0f172a;border-radius:16px;box-shadow:0 24px 60px rgba(15,23,42,.35);padding:16px 18px 18px}' +
+    '.dark .wsl-pop-box{background:#0f172a;color:#e2e8f0}.wsl-pop-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;font:700 16px/1.3 system-ui,sans-serif}' +
+    '.wsl-pop-hd button{border:0;background:transparent;color:inherit;font-size:20px;line-height:1;cursor:pointer;padding:4px 8px;border-radius:8px}';
+  function popup(key) {
+    if (!document.getElementById('wsl-pop-css')) { var st = document.createElement('style'); st.id = 'wsl-pop-css'; st.textContent = POP_CSS; document.head.appendChild(st); }
+    var old = document.querySelector('[data-wsl-pop]'); if (old) old.remove();
+    var ov = document.createElement('div'); ov.className = 'wsl-pop'; ov.setAttribute('data-wsl-pop', '1');
+    ov.innerHTML = '<div class="wsl-pop-box" role="dialog" aria-modal="true" aria-label="프린터로 보내기"><div class="wsl-pop-hd"><span>🖨️ 프린터로 보내기</span><button type="button" data-wsl-pop-x aria-label="닫기">✕</button></div><div data-wsl-app data-wsl-embed="' + key + '"></div></div>';
+    ov.querySelector('[data-wsl-pop-x]').onclick = function () { ov.remove(); };
+    document.body.appendChild(ov);
+    app();
+  }
   function sendButtons() {
     var list = document.querySelectorAll('[data-wsl-send]:not([data-wsl-sent])');
-    if (!list.length || !window.indexedDB) return;
+    if (!list.length) return;
     var c = navCfg(); if (c.enabled === false) return;
     who().then(function (m) {
       if (!m.logged_in || (SEND_ADMIN_ONLY && !m.admin)) return;
@@ -122,13 +129,13 @@
         src.setAttribute('data-wsl-sent', '1');
         var b = document.createElement('button'); b.type = 'button'; b.className = (src.getAttribute('data-wsl-send-class') || src.className || '') + ' wsl-send2';
         b.setAttribute('data-cls-skip', '1'); b.setAttribute('data-wsl-btn', '1');
-        b.title = (src.getAttribute('data-wsl-send') || '이 파일') + '을(를) 웹 슬라이서에서 슬라이스해 내 프린터로 — 새 탭으로 열려요' + (SEND_ADMIN_ONLY ? ' (🔒 관리자 시험)' : '');
+        b.title = (src.getAttribute('data-wsl-send') || '이 파일') + '을(를) 내 프린터로 — 프린터 고르기 · 설정 · 슬라이스 · 보내기를 이 화면에서' + (SEND_ADMIN_ONLY ? ' (🔒 관리자 시험)' : '');
         b.textContent = '🖨️ 프린터로 보내기'; b.disabled = !!src.disabled; b.hidden = !!src.hidden;
         b.addEventListener('click', function (e) {
           e.preventDefault(); e.stopPropagation(); if (src.disabled) return;
-          var key = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), w = null;
-          try { w = window.open('/slicer?handoff=' + key, '_blank'); } catch (er) {}
-          disarm(); armed = { key: key, w: w, t: setTimeout(function () { if (armed && armed.key === key) { fail(armed, '파일을 만드는 데 너무 오래 걸렸어요 — 원래 화면에서 받아 끌어 놓아 주세요.'); disarm(); } }, 60000) };
+          var key = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+          popup(key);
+          disarm(); armed = { key: key, t: setTimeout(function () { if (armed && armed.key === key) { fail(armed, '파일을 만드는 데 너무 오래 걸렸어요 — 다시 눌러 주세요.'); disarm(); } }, 60000) };
           src.click();
         });
         src.insertAdjacentElement('afterend', b);
