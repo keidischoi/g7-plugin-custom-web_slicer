@@ -1,4 +1,4 @@
-/*! custom-web_slicer 0.1.3 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
+/*! custom-web_slicer 0.1.4 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
  *  엔진: three-slicer (OrcaSlicer 를 WebAssembly 로 옮긴 것, AGPL) — 이 화면을 열 때만 받음
  *  모델 읽기: model-read.cjs (출력 검사기 custom-print_check 의 계산 핵심, MIT)
  *  흐름: 파일 → 프린터 · 품질 · 필라멘트 → 슬라이스(Web Worker) → .gcode.3mf / .gcode 내려받기 · 프린터 라운지로 보내기 */
@@ -6,8 +6,9 @@ import PCMod from './model-read.cjs'
 import { bambuHeader, buildGcode3mf } from './gcode3mf.js'
 import { pngBytes, renderThumb } from './thumb.js'
 import { createSlicerClient } from 'three-slicer/client'
+import { takeHandoff, unzipModels } from './handoff.js'
 
-const V = '0.1.3', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
+const V = '0.1.4', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
 const PC = (PCMod && PCMod.read) ? PCMod : self.PCCore
 const MAX_TOOLS = 8, BIG_TRIS = 400000
 const SEND_ADMIN_ONLY = true   // 0.1.1 「📤 내 프린터로 보내기」는 시험하는 동안 관리자에게만 (실제 프린터에서 확인되면 false 로)
@@ -78,6 +79,7 @@ const S = {
   vendor: 'BBL', printer: 'Bambu Lab A1 0.4 nozzle', process: '', fil: [],
   infill: 15, support: false, brim: false,
   busy: false, prog: 0, result: null, msg: '', err: '', sent: '',
+  zip: null,                                                      // 0.1.4 ZIP 안의 모델들 {name, list:[{name, data}]} — 하나 고르기
 }
 let ST = null, PROCS = null, FILS = null, client = null, root = null
 
@@ -182,8 +184,19 @@ function toStl(t, plan) {
   return { buf, splits, tools: counts.map((_, i) => i), size: [x1 - x0, y1 - y0, (() => { let z1 = -Infinity; for (let i = 2; i < t.length; i += 3) if (t[i] > z1) z1 = t[i]; return z1 - z0 })()] }
 }
 
-async function openFile(f) {
-  S.err = ''; S.msg = ''; S.sent = ''; S.result = null; S.file = f; S.tris = null; S.plan = null; S.thumb = null
+async function openFile(f, fromZip) {
+  S.err = ''; S.msg = ''; S.sent = ''; S.result = null; S.file = f; S.tris = null; S.plan = null; S.thumb = null; S.info = null
+  if (!fromZip) S.zip = null
+  if (/\.zip$/i.test(f.name)) {   // 0.1.4 자른 조각 모두 (ZIP) 등 — 안의 모델 하나를 고름
+    try {
+      const list = await unzipModels(await f.arrayBuffer())
+      S.file = null
+      if (!list.length) S.err = '「' + f.name + '」 안에 STL · 3MF · OBJ 가 없어요.'
+      else if (list.length === 1) return openFile(new File([list[0].data], list[0].name), false)
+      else S.zip = { name: f.name, list }
+    } catch (e) { S.file = null; S.err = 'ZIP 을 풀지 못했어요: ' + ((e && e.message) || e) }
+    draw(); return
+  }
   draw(); setStatus('📖 「' + f.name + '」 읽는 중…')
   try {
     const t = await PC.read(f.name, await f.arrayBuffer())
@@ -410,8 +423,12 @@ function draw() {
         (P && P.painted ? '<span class="wsl-warn">🎨 칠한 다색은 아직 한 색으로 슬라이스해요 (다음 버전).</span>' : '') +
         (P && P.many ? '<span class="wsl-warn">색이 ' + MAX_TOOLS + '개보다 많아 한 색으로 슬라이스해요.</span>' : '') +
         (I.tris > BIG_TRIS ? '<span class="wsl-warn">삼각형이 많아요 — 휴대폰에서는 메모리가 모자라 멈출 수 있어요.</span>' : '') +
-        '<label class="wsl-btn sm">다른 파일<input type="file" accept=".stl,.3mf,.obj" hidden data-pick></label></div></div>'
-        : '<label class="wsl-drop" data-drop><input type="file" accept=".stl,.3mf,.obj" hidden data-pick><b>📂 STL · 3MF 를 끌어 놓거나 눌러서 고르세요</b><small>모델은 이 브라우저에서만 읽어요</small></label>') + '</section>' +
+        (S.zip ? '<button type="button" class="wsl-btn sm" data-zipback>📦 ZIP 의 다른 조각</button> ' : '') +
+        '<label class="wsl-btn sm">다른 파일<input type="file" accept=".stl,.3mf,.obj,.zip" hidden data-pick></label></div></div>'
+        : S.zip && !S.file ? '<div class="wsl-zip"><p>📦 「' + esc(S.zip.name) + '」 안에 모델이 ' + S.zip.list.length + '개 있어요 — 슬라이스할 것 하나를 고르세요.</p><div class="wsl-chips">' +
+          S.zip.list.map((x, i) => '<button type="button" class="wsl-chip" data-zip="' + i + '">' + esc(x.name) + ' <small>' + n1(x.data.length / 1048576) + 'MB</small></button>').join('') +
+          '</div><label class="wsl-btn sm">다른 파일<input type="file" accept=".stl,.3mf,.obj,.zip" hidden data-pick></label></div>'
+        : '<label class="wsl-drop" data-drop><input type="file" accept=".stl,.3mf,.obj,.zip" hidden data-pick><b>📂 STL · 3MF 를 끌어 놓거나 눌러서 고르세요</b><small>모델은 이 브라우저에서만 읽어요</small></label>') + '</section>' +
     // 2. 프린터
     '<section class="wsl-card"><h2><b>2</b> 프린터</h2>' +
       (S.lounge.length ? '<div class="wsl-chips">' + S.lounge.map((p) => '<button type="button" class="wsl-chip' + (+p.id === S.pid ? ' on' : '') + '" data-lounge="' + p.id + '">🖨️ ' + esc(p.name) + (p.can_send ? ' <em>📤</em>' : '') + '</button>').join('') + '<button type="button" class="wsl-chip' + (!S.pid ? ' on' : '') + '" data-lounge="0">직접 고르기</button></div>'
@@ -458,6 +475,8 @@ function bind() {
     else if (b.hasAttribute('data-dl')) download(b.getAttribute('data-dl'))
     else if (b.hasAttribute('data-send')) sendDialog()
     else if (b.hasAttribute('data-sent-x')) { S.sent = ''; draw() }
+    else if (b.hasAttribute('data-zip')) { const x = S.zip && S.zip.list[+b.getAttribute('data-zip')]; if (x) openFile(new File([x.data], x.name), true) }
+    else if (b.hasAttribute('data-zipback')) { S.file = null; S.tris = null; S.info = null; S.plan = null; S.result = null; draw() }
   })
   root.addEventListener('dragover', (e) => { if (e.target.closest('[data-drop]')) { e.preventDefault(); e.target.closest('[data-drop]').classList.add('over') } })
   root.addEventListener('dragleave', (e) => { const d = e.target.closest('[data-drop]'); if (d) d.classList.remove('over') })
@@ -469,9 +488,30 @@ function mount() {
   if (!el || el.__wsl) return
   el.__wsl = true; root = el
   bind(); draw()
+  handoff()
   loadMe().then(draw)
   engineData().then(() => { if (!S.process) S.process = defaultProcess(); if (!S.fil.length) S.fil = [defaultFilament()]; draw(); return loadLounge() })
     .catch((e) => { S.err = '슬라이서 설정을 불러오지 못했어요: ' + ((e && e.message) || e); draw() })
+}
+/* ───────── 0.1.4 다른 화면에서 넘겨받은 파일 (/slicer?handoff=열쇠) ───────── */
+async function handoff() {
+  let key = ''
+  try { key = new URLSearchParams(location.search).get('handoff') || '' } catch (e) {}
+  if (!/^[A-Za-z0-9_-]{4,64}$/.test(key)) return
+  S.msg = '📨 다른 화면에서 보낸 파일을 기다리는 중… (파일을 만드는 데 조금 걸릴 수 있어요)'; draw()
+  for (let i = 0; i < 180; i++) {
+    let v = null
+    try { v = await takeHandoff(key) } catch (e) { break }
+    if (v) {
+      S.msg = ''
+      try { history.replaceState(history.state, '', location.pathname) } catch (e) {}
+      if (v.error || !v.blob) { S.err = v.error || '파일을 넘겨받지 못했어요.'; draw(); return }
+      await openFile(new File([v.blob], v.name || 'model.stl', { type: v.blob.type || '' }))
+      return
+    }
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  S.msg = ''; S.err = '넘겨받을 파일이 오지 않았어요 — 원래 화면에서 파일을 받아 여기에 끌어 놓아 주세요.'; draw()
 }
 window.__wslApp = { tick: mount, version: V }
 mount()
