@@ -1,4 +1,4 @@
-/*! custom-web_slicer 0.1.0 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
+/*! custom-web_slicer 0.1.1 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
  *  엔진: three-slicer (OrcaSlicer 를 WebAssembly 로 옮긴 것, AGPL) — 이 화면을 열 때만 받음
  *  모델 읽기: model-read.cjs (출력 검사기 custom-print_check 의 계산 핵심, MIT)
  *  흐름: 파일 → 프린터 · 품질 · 필라멘트 → 슬라이스(Web Worker) → .gcode.3mf / .gcode 내려받기 · 프린터 라운지로 보내기 */
@@ -7,9 +7,10 @@ import { bambuHeader, buildGcode3mf } from './gcode3mf.js'
 import { pngBytes, renderThumb } from './thumb.js'
 import { createSlicerClient } from 'three-slicer/client'
 
-const V = '0.1.0', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
+const V = '0.1.1', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
 const PC = (PCMod && PCMod.read) ? PCMod : self.PCCore
 const MAX_TOOLS = 8, BIG_TRIS = 400000
+const SEND_ADMIN_ONLY = true   // 0.1.1 「📤 내 프린터로 보내기」는 시험하는 동안 관리자에게만 (실제 프린터에서 확인되면 false 로)
 const VENDOR_NAME = { BBL: 'Bambu Lab' }
 
 /* ───────── 작은 도구 ───────── */
@@ -73,7 +74,7 @@ function estimateSeconds(g, swapSec = 50) {
 /* ───────── 상태 ───────── */
 const S = {
   file: null, tris: null, info: null, plan: null, thumb: null,
-  lounge: [], loggedIn: false, pid: 0,              // 프린터 라운지 내 프린터 · 고른 것 (0 = 없음)
+  lounge: [], loggedIn: false, pid: 0, admin: false,              // 프린터 라운지 내 프린터 · 고른 것 (0 = 없음)
   vendor: 'BBL', printer: 'Bambu Lab A1 0.4 nozzle', process: '', fil: [],
   infill: 15, support: false, brim: false,
   busy: false, prog: 0, result: null, msg: '', err: '',
@@ -204,6 +205,15 @@ async function openFile(f) {
 }
 
 /* ───────── 프린터 라운지 ───────── */
+/** 0.1.1 관리자인가 (보내기 단추) */
+async function loadMe() {
+  try {
+    const r = await fetch('/api/plugins/custom-web_slicer/me', { headers: headers(), credentials: 'same-origin', cache: 'no-store' })
+    const j = r.ok ? await r.json() : null
+    S.admin = !!(j && j.data && j.data.admin)
+  } catch (e) { S.admin = false }
+}
+const canSeeSend = () => !SEND_ADMIN_ONLY || S.admin
 async function loadLounge() {
   try {
     const r = await fetch(LOUNGE + '/overview', { headers: headers(), credentials: 'same-origin' })
@@ -309,7 +319,7 @@ function download(kind) {
 }
 function sendDialog() {
   const p = loungeP(), R = S.result
-  if (!p || !R) return
+  if (!p || !R || !canSeeSend() || !p.can_send) return
   const kind = p.send_kind || 'bambu', bb = kind === 'bambu'
   const ams = ((p.temps && p.temps.ams) || []).filter((a) => a.slot)
   const rows = bb && ams.length ? R.tools.map((t, i) => {
@@ -415,8 +425,10 @@ function draw() {
     (R ? '<section class="wsl-card wsl-res"><h2><b>4</b> 결과</h2><div class="wsl-tiles">' +
       '<div><small>예상 시간' + (R.guessed ? ' (어림)' : '') + '</small><b>' + dur(R.seconds) + '</b></div><div><small>필라멘트</small><b>' + n1(R.weight) + ' g</b></div><div><small>층</small><b>' + R.layers.toLocaleString() + '</b></div><div><small>슬라이스</small><b>' + n1(R.ms / 1000) + '초</b></div></div>' +
       (R.tools.length > 1 ? '<div class="wsl-tools">' + R.tools.map((t, i) => '<span><i style="background:' + esc(t.color) + '"></i>' + (i + 1) + '번 ' + n1(t.g) + ' g</span>').join('') + '<small>색 바꿀 때 버리는 양(프라임 타워)이 포함돼요.</small></div>' : '') +
-      '<div class="wsl-acts">' + (lp && lp.can_send ? '<button type="button" class="wsl-btn pri" data-send>📤 「' + esc(lp.name) + '」 로 보내기</button>' : '') +
-        (R.gcode3mf ? '<button type="button" class="wsl-btn" data-dl="3mf">⬇️ .gcode.3mf 내려받기</button>' : '') + '<button type="button" class="wsl-btn" data-dl="gcode">⬇️ .gcode 내려받기</button></div>' +
+      '<div class="wsl-acts">' + (lp && canSeeSend() ? '<button type="button" class="wsl-btn pri" data-send' + (lp.can_send ? '' : ' disabled title="이 프린터는 지금 보낼 수 없어요"') + '>📤 「' + esc(lp.name) + '」 로 보내기' + (SEND_ADMIN_ONLY ? ' <small class="wsl-adm">🔒 관리자 시험</small>' : '') + '</button>' : '') +
+      (R.gcode3mf ? '<button type="button" class="wsl-btn" data-dl="3mf">⬇️ .gcode.3mf 내려받기</button>' : '') + '<button type="button" class="wsl-btn" data-dl="gcode">⬇️ .gcode 내려받기</button></div>' +
+      (lp && canSeeSend() && !lp.can_send ? '<p class="wsl-hint">📤 「' + esc(lp.name) + '」 는 지금 보낼 수 없어요 — 프린터 라운지 연결 프로그램이 10분 안에 소식을 보내야 하고, 관리자 설정 「출력 파일 보내기」가 켜져 있어야 해요. <a href="/my-printer">프린터 라운지 ›</a></p>' : '') +
+      (SEND_ADMIN_ONLY && S.admin ? '<p class="wsl-hint">🔒 보내기는 시험하는 동안 <b>관리자에게만</b> 보여요. 회원에게는 내려받기만 보여요.</p>' : '') +
       '<p class="wsl-hint">예상 시간 · 무게는 엔진 계산이라 실제와 조금 다를 수 있어요. 처음 쓰는 프린터는 첫 층을 지켜봐 주세요.</p></section>' : '') +
     '<footer class="wsl-foot">이 슬라이서는 <b>AGPL-3.0</b> 오픈소스예요 — <a href="' + SRC + '" target="_blank" rel="noopener">소스 보기</a> · 엔진 <a href="https://github.com/kimgh06/Three_Slicer" target="_blank" rel="noopener">three-slicer</a> (OrcaSlicer 를 브라우저로 옮긴 것). 품질은 Bambu Studio · OrcaSlicer 와 조금 다를 수 있어요.</footer>' +
     '</div>'
@@ -451,6 +463,7 @@ function mount() {
   if (!el || el.__wsl) return
   el.__wsl = true; root = el
   bind(); draw()
+  loadMe().then(draw)
   engineData().then(() => { if (!S.process) S.process = defaultProcess(); if (!S.fil.length) S.fil = [defaultFilament()]; draw(); return loadLounge() })
     .catch((e) => { S.err = '슬라이서 설정을 불러오지 못했어요: ' + ((e && e.message) || e); draw() })
 }

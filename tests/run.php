@@ -28,11 +28,12 @@ ok(str_contains($loader, "querySelector('[data-wsl-app]')") && str_contains($loa
 $app = (string) file_get_contents($root.'/web/src/app.js');
 ok(str_contains($app, "V = '".$ver."'") && str_contains($app, 'custom-web_slicer '.$ver), '앱 버전');
 ok(str_contains($app, "'/printers/' + p.id + '/send-file'") && str_contains($app, "fd.append('bed_clear', '1')") && str_contains($app, "data-bed"), '보내기: 프린터 라운지 send-file · 베드 확인 체크');
+ok(str_contains($app, 'const SEND_ADMIN_ONLY = true') && str_contains($app, "/api/plugins/custom-web_slicer/me") && str_contains($app, '!canSeeSend() || !p.can_send') && str_contains($routes0 = (string) file_get_contents($root.'/src/routes/api.php'), "Route::get('me'") && str_contains((string) file_get_contents($root.'/src/Http/Controllers/MeController.php'), 'isAdmin()'), '0.1.1 보내기는 시험하는 동안 관리자에게만 (me · 단추 · 창)');
 ok(str_contains($app, 'github.com/keidischoi/g7-plugin-custom-web_slicer') && str_contains($app, 'AGPL-3.0'), '화면에 소스 링크 · AGPL');
 $layout = json_decode((string) file_get_contents($root.'/resources/layouts/user/web_slicer.json'), true);
 ok(($layout['layout_name'] ?? '') === 'web_slicer' && ($layout['slots']['content'][0]['props']['data-wsl-app'] ?? '') === '1', '사용자 레이아웃 · 앱 자리');
 $routes = (string) file_get_contents($root.'/src/routes/api.php');
-ok(str_contains($routes, "Route::get('assets/{file}'") && str_contains($routes, '(js|css|json|wasm|txt)'), 'API: assets 만');
+ok(str_contains($routes, "Route::get('assets/{file}'") && str_contains($routes, '(js|css|json|wasm|txt)') && substr_count($routes, 'Route::get(') === 2, 'API: assets · me 만');
 $asset = (string) file_get_contents($root.'/src/Http/Controllers/AssetController.php');
 ok(str_contains($asset, "'/dist/web/'") && str_contains($asset, "str_contains(\$file, '..')"), '파일 내주기: dist/web 안만 · 경로 밖으로 못 나감');
 // 파일 이름 규칙 흉내
@@ -46,7 +47,7 @@ ok($bad === [], '빌드 결과 파일 이름이 모두 내주기 규칙에 맞�
 $appJs = (string) @file_get_contents($dist.'/app.js');
 ok(str_contains($appJs, 'worker.js?v=') && str_contains($appJs, $ver), '빌드된 앱: worker 주소 · 버전');
 ok(str_contains((string) file_get_contents($root.'/plugin.php'), "RouteListener::class, MenuListener::class") && str_contains((string) file_get_contents($root.'/src/Listeners/RouteListener.php'), "'/slicer'"), '화면 주소 /slicer · 메뉴');
-foreach (['plugin.php', 'src/Listeners/RouteListener.php', 'src/Listeners/MenuListener.php', 'src/Http/Controllers/AssetController.php', 'src/routes/api.php'] as $f) {
+foreach (['plugin.php', 'src/Listeners/RouteListener.php', 'src/Listeners/MenuListener.php', 'src/Http/Controllers/AssetController.php', 'src/Http/Controllers/MeController.php', 'src/routes/api.php'] as $f) {
     $o = [];
     $c = 0;
     exec('php -l '.escapeshellarg($root.'/'.$f).' 2>&1', $o, $c);
