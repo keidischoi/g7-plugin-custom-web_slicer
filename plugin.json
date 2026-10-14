@@ -1,0 +1,31 @@
+{
+    "identifier": "custom-web_slicer",
+    "vendor": "custom",
+    "name": {
+        "ko": "웹 슬라이서",
+        "en": "Web Slicer"
+    },
+    "version": "0.1.0",
+    "license": "AGPL-3.0-or-later",
+    "description": {
+        "ko": "회원 브라우저에서 STL · 3MF 를 슬라이스해 내 프린터로 바로 보냅니다 (서버로 모델을 올리지 않음). 엔진: three-slicer (OrcaSlicer 를 브라우저로 옮긴 것, AGPL). 보내기는 프린터 라운지(custom-my_printer)의 「출력 파일 보내기」를 씀.",
+        "en": "Slices STL/3MF in the member's browser and sends the result to their printer through Printer Lounge. Engine: three-slicer (OrcaSlicer port, AGPL)."
+    },
+    "g7_version": ">=7.0.5",
+    "dependencies": {
+        "modules": {},
+        "plugins": {}
+    },
+    "github_url": "https://github.com/keidischoi/g7-plugin-custom-web_slicer",
+    "github_changelog_url": "https://github.com/keidischoi/g7-plugin-custom-web_slicer/blob/main/CHANGELOG.md",
+    "assets": {
+        "js": {
+            "entry": "resources/js/web_slicer.js",
+            "output": "dist/js/plugin.iife.js"
+        }
+    },
+    "loading": {
+        "strategy": "global",
+        "priority": 67
+    }
+}
