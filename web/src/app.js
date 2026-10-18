@@ -1,4 +1,4 @@
-/*! custom-web_slicer 0.1.5 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
+/*! custom-web_slicer 0.1.6 — 웹 슬라이서 화면 · AGPL-3.0-or-later · 소스: https://github.com/keidischoi/g7-plugin-custom-web_slicer
  *  엔진: three-slicer (OrcaSlicer 를 WebAssembly 로 옮긴 것, AGPL) — 이 화면을 열 때만 받음
  *  모델 읽기: model-read.cjs (출력 검사기 custom-print_check 의 계산 핵심, MIT)
  *  흐름: 파일 → 프린터 · 품질 · 필라멘트 → 슬라이스(Web Worker) → .gcode.3mf / .gcode 내려받기 · 프린터 라운지로 보내기 */
@@ -8,7 +8,7 @@ import { pngBytes, renderThumb } from './thumb.js'
 import { createSlicerClient } from 'three-slicer/client'
 import { takeHandoff, unzipModels } from './handoff.js'
 
-const V = '0.1.5', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
+const V = '0.1.6', LOUNGE = '/api/plugins/custom-my_printer', SRC = 'https://github.com/keidischoi/g7-plugin-custom-web_slicer'
 const PC = (PCMod && PCMod.read) ? PCMod : self.PCCore
 const MAX_TOOLS = 8, BIG_TRIS = 400000
 const SEND_ADMIN_ONLY = true   // 0.1.1 「📤 내 프린터로 보내기」는 시험하는 동안 관리자에게만 (실제 프린터에서 확인되면 false 로)

@@ -15,6 +15,27 @@ class AssetController extends Controller
 {
     private const TYPES = ['js' => 'application/javascript; charset=UTF-8', 'css' => 'text/css; charset=UTF-8', 'json' => 'application/json; charset=UTF-8', 'wasm' => 'application/wasm', 'txt' => 'text/plain; charset=UTF-8'];
 
+    /** 0.1.6 화면 파일 캐시 — ?v= 가 지금 버전과 같을 때만 길게 캐시 (옛 불러오기가 옛 v 로 부르면 no-cache → 업데이트한 화면이 바로 보임) */
+    public static function version(): string
+    {
+        static $v = null;
+        if ($v === null) {
+            $v = '';
+            for ($d = __DIR__, $i = 0; $i < 7; $d = dirname($d), $i++) {
+                foreach (['plugin.json', 'module.json'] as $f) {
+                    if (is_file($d.'/'.$f)) {
+                        $j = json_decode((string) @file_get_contents($d.'/'.$f), true);
+                        $v = is_array($j) ? (string) ($j['version'] ?? '') : '';
+
+                        return $v;
+                    }
+                }
+            }
+        }
+
+        return $v;
+    }
+
     public function show(Request $request, string $file): Response
     {
         if (! preg_match('/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,80}\.(js|css|json|wasm|txt)$/', $file, $m) || str_contains($file, '..')) {
@@ -29,7 +50,7 @@ class AssetController extends Controller
         $hashed = (bool) preg_match('/^c-[A-Za-z0-9_-]{6,}\./', $file);   // 엔진 조각 (이름에 내용 해시)
         $headers = [
             'Content-Type' => self::TYPES[$m[1]],
-            'Cache-Control' => $hashed || $request->query('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600',
+            'Cache-Control' => $hashed || (string) $request->query('v') === self::version() ? 'public, max-age=31536000, immutable' : 'no-cache',
             'ETag' => $etag,
             'X-Content-Type-Options' => 'nosniff',
         ];
