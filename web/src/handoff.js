@@ -4,6 +4,18 @@
  *  ZIP(자른 조각 모두 등)은 안의 STL · 3MF · OBJ 를 풀어 하나를 고르게 함 */
 export const HANDOFF_DB = 'wsl-handoff', HANDOFF_STORE = 'files'
 export const MODEL_RE = /\.(stl|3mf|obj)$/i
+  // 🌐 화면 글자 사전 — en 에 없으면 ko
+  var T = {
+   ko: {
+    not_a_zip_file: "ZIP 파일이 아니에요"
+   },
+   en: {
+    not_a_zip_file: "Not a ZIP file"
+   }
+  };
+  function __loc() { try { return String(localStorage.getItem('g7_locale') || document.documentElement.lang || 'ko').slice(0, 2); } catch (e) { return 'ko'; } }
+  function tr(k, v) { var d = T[__loc()] || T.ko; var s = d[k] != null ? d[k] : (T.ko[k] != null ? T.ko[k] : k); return v ? s.replace(/\{(\w+)\}/g, function (m, x) { return v[x] != null ? String(v[x]) : m; }) : s; }
+
 
 function idb() {
   return new Promise((ok, no) => {
@@ -36,7 +48,7 @@ export async function unzipModels(buf) {
   const u = new Uint8Array(buf), dv = new DataView(u.buffer, u.byteOffset, u.byteLength), td = new TextDecoder()
   let e = -1
   for (let i = u.length - 22; i >= Math.max(0, u.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break }
-  if (e < 0) throw new Error('ZIP 파일이 아니에요')
+  if (e < 0) throw new Error(tr('not_a_zip_file'))
   const n = dv.getUint16(e + 10, true), out = []
   let p = dv.getUint32(e + 16, true)
   for (let k = 0; k < n; k++) {
