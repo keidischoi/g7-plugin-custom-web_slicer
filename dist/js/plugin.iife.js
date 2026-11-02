@@ -1,9 +1,37 @@
-/*! custom-web_slicer 0.1.6 — 웹 슬라이서 화면 불러오기 (이 플러그인 화면 data-wsl-app 이 있을 때만 앱 · 엔진을 받음) · AGPL-3.0-or-later */
+/*! custom-web_slicer 0.1.7 — 웹 슬라이서 화면 불러오기 (이 플러그인 화면 data-wsl-app 이 있을 때만 앱 · 엔진을 받음) · AGPL-3.0-or-later */
 (function () {
   'use strict';
   if (window.__wslLoader) return;
   window.__wslLoader = true;
-  var API = '/api/plugins/custom-web_slicer', V = '0.1.6', loading = false;
+  // 🌐 화면 글자 사전 — en 에 없으면 ko
+  var T = {
+   ko: {
+    web_slicer: "웹 슬라이서",
+    is_not_a_model: "」 은(는) 슬라이스할 수 있는 모델 파일(STL · 3MF · OBJ)이 아니에요.",
+    could_not_pass_the: "파일을 넘기지 못했어요: ",
+    send_to_printer_div: '<div class="wsl-pop-box" role="dialog" aria-modal="true" aria-label="프린터로 보내기"><div class="wsl-pop-hd"><span>🖨️ 프린터로 보내기</span><button type="button" data-wsl-pop-x aria-label="닫기">✕</button></div><div data-wsl-app data-wsl-embed="',
+    this_file: "이 파일",
+    to_my_printer_pick: "을(를) 내 프린터로 — 프린터 고르기 · 설정 · 슬라이스 · 보내기를 이 화면에서",
+    admin_test: " (🔒 관리자 시험)",
+    send_to_printer: "🖨️ 프린터로 보내기",
+    making_the_file_took: "파일을 만드는 데 너무 오래 걸렸어요 — 다시 눌러 주세요."
+   },
+   en: {
+    web_slicer: "Web Slicer",
+    is_not_a_model: "」 is not a model file that can be sliced (STL · 3MF · OBJ).",
+    could_not_pass_the: "Could not pass the file: ",
+    send_to_printer_div: '<div class="wsl-pop-box" role="dialog" aria-modal="true" aria-label="Send to printer"><div class="wsl-pop-hd"><span>🖨️ Send to printer</span><button type="button" data-wsl-pop-x aria-label="Close">✕</button></div><div data-wsl-app data-wsl-embed="',
+    this_file: "This file",
+    to_my_printer_pick: " to my printer — pick printer · settings · slice · send on this screen",
+    admin_test: " (🔒 admin test)",
+    send_to_printer: "🖨️ Send to printer",
+    making_the_file_took: "Making the file took too long — please try again."
+   }
+  };
+  function __loc() { try { return String(localStorage.getItem('g7_locale') || document.documentElement.lang || 'ko').slice(0, 2); } catch (e) { return 'ko'; } }
+  function tr(k, v) { var d = T[__loc()] || T.ko; var s = d[k] != null ? d[k] : (T.ko[k] != null ? T.ko[k] : k); return v ? s.replace(/\{(\w+)\}/g, function (m, x) { return v[x] != null ? String(v[x]) : m; }) : s; }
+
+  var API = '/api/plugins/custom-web_slicer', V = '0.1.7', loading = false;
   function app() {
     if (!document.querySelector('[data-wsl-app]')) return;
     if (!document.getElementById('wsl-css')) {
@@ -19,7 +47,7 @@
   try { new MutationObserver(function () { if (document.querySelector('[data-wsl-app]')) app(); }).observe(document.documentElement, { childList: true, subtree: true }); } catch (e) {}
 
   // 헤더 메인 메뉴 「웹 슬라이서」 (#wsl-nav · #wsl-nav-mobile) — 설정은 화면 HTML 에 같이 실려 옴: G7Config.appConfig.cextNav["custom-web_slicer"].cfg
-  var NAV_ID = 'wsl-nav', NAV_MOB = 'wsl-nav-mobile', NAV_PATH = '/slicer', NAV_LABEL = '웹 슬라이서';
+  var NAV_ID = 'wsl-nav', NAV_MOB = 'wsl-nav-mobile', NAV_PATH = '/slicer', NAV_LABEL = tr('web_slicer');
   var NAV_BASE = 'px-3 py-2 text-sm font-medium whitespace-nowrap cursor-pointer rounded-lg transition-colors';
   var NAV_ON = NAV_BASE + ' bg-gray-900 text-white dark:bg-white dark:text-gray-900';
   var NAV_OFF = NAV_BASE + ' text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800';
@@ -91,8 +119,8 @@
     var get = b ? Promise.resolve(b) : /^(data:|blob:)/.test(href) || (href.indexOf(location.origin + '/') === 0) ? fetch(href, { credentials: 'same-origin' }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); }) : null;
     if (!get) return false;
     disarm(); a.setAttribute('data-cls-taken', '1');   // 부른 쪽이 「저장했어요」 알림을 안 띄우게 (웹저장소 연결과 같은 표시)
-    if (!MODEL.test(name)) { fail(o, '「' + name + '」 은(는) 슬라이스할 수 있는 모델 파일(STL · 3MF · OBJ)이 아니에요.'); return true; }
-    get.then(function (bl) { pass(o.key, { name: name, blob: bl }); }, function (e) { fail(o, '파일을 넘기지 못했어요: ' + ((e && e.message) || e)); });
+    if (!MODEL.test(name)) { fail(o, '「' + name + tr('is_not_a_model')); return true; }
+    get.then(function (bl) { pass(o.key, { name: name, blob: bl }); }, function (e) { fail(o, tr('could_not_pass_the') + ((e && e.message) || e)); });
     return true;
   }
   (function hook() {
@@ -114,7 +142,7 @@
     if (!document.getElementById('wsl-pop-css')) { var st = document.createElement('style'); st.id = 'wsl-pop-css'; st.textContent = POP_CSS; document.head.appendChild(st); }
     var old = document.querySelector('[data-wsl-pop]'); if (old) old.remove();
     var ov = document.createElement('div'); ov.className = 'wsl-pop'; ov.setAttribute('data-wsl-pop', '1');
-    ov.innerHTML = '<div class="wsl-pop-box" role="dialog" aria-modal="true" aria-label="프린터로 보내기"><div class="wsl-pop-hd"><span>🖨️ 프린터로 보내기</span><button type="button" data-wsl-pop-x aria-label="닫기">✕</button></div><div data-wsl-app data-wsl-embed="' + key + '"></div></div>';
+    ov.innerHTML = tr('send_to_printer_div') + key + '"></div></div>';
     ov.querySelector('[data-wsl-pop-x]').onclick = function () { ov.remove(); };
     document.body.appendChild(ov);
     app();
@@ -129,13 +157,13 @@
         src.setAttribute('data-wsl-sent', '1');
         var b = document.createElement('button'); b.type = 'button'; b.className = (src.getAttribute('data-wsl-send-class') || src.className || '') + ' wsl-send2';
         b.setAttribute('data-cls-skip', '1'); b.setAttribute('data-wsl-btn', '1');
-        b.title = (src.getAttribute('data-wsl-send') || '이 파일') + '을(를) 내 프린터로 — 프린터 고르기 · 설정 · 슬라이스 · 보내기를 이 화면에서' + (SEND_ADMIN_ONLY ? ' (🔒 관리자 시험)' : '');
-        b.textContent = '🖨️ 프린터로 보내기'; b.disabled = !!src.disabled; b.hidden = !!src.hidden;
+        b.title = (src.getAttribute('data-wsl-send') || tr('this_file')) + tr('to_my_printer_pick') + (SEND_ADMIN_ONLY ? tr('admin_test') : '');
+        b.textContent = tr('send_to_printer'); b.disabled = !!src.disabled; b.hidden = !!src.hidden;
         b.addEventListener('click', function (e) {
           e.preventDefault(); e.stopPropagation(); if (src.disabled) return;
           var key = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
           popup(key);
-          disarm(); armed = { key: key, t: setTimeout(function () { if (armed && armed.key === key) { fail(armed, '파일을 만드는 데 너무 오래 걸렸어요 — 다시 눌러 주세요.'); disarm(); } }, 60000) };
+          disarm(); armed = { key: key, t: setTimeout(function () { if (armed && armed.key === key) { fail(armed, tr('making_the_file_took')); disarm(); } }, 60000) };
           src.click();
         });
         src.insertAdjacentElement('afterend', b);
